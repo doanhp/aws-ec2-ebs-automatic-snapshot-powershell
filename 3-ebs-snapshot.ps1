@@ -62,8 +62,21 @@ function snapshot_volumes {
          
 		# And then we're going to add a "CreatedBy:AutomatedBackup" tag to the resulting snapshot.
 		# Why? Because we only want to purge snapshots taken by the script later, and not delete snapshots manually taken.
-		aws ec2 create-tags --region $region --resource $snapresult --tags Key="CreatedBy,Value=AutomatedBackup"
+		aws ec2 create-tags --region $region --resource $snapresult --tags   Key="Name,Value=Your-EC2-Name_snaphshot_$today" Key="CreatedBy,Value=AutomatedBackup"
 		$global:log_message = $global:log_message + "Volume ID is $volume_id." + $nl
+		 
+		# Copy to US-West-2 Region
+        	# Pausing for 10 minutes to allow snapshot to complete
+       		 $global:log_message = "Pause for 5 minutes to allow snapshot to complete" + $nl
+        	 start-sleep -Seconds 300
+        
+       		 # Copy the new snapshot to us-west-2 region
+       		 $remote_snapshot_id= aws ec2 copy-snapshot --region us-west-2 --source-region $region --source-snapshot-id $snapresult --description $snapresult --output=text
+       		 start-sleep -Seconds 5
+        
+        	# Create the Name & Createby tag for us-west-2 region
+        	aws ec2 create-tags --region us-west-2 --resource $remote_snapshot_id --tags Key="Name,Value=Your-EC2-Name_naphshot_$today" Key="CreatedBy,Value=AutomatedBackup"
+
 	}
 }
 
@@ -79,6 +92,11 @@ function cleanup_snapshots {
 			if ($snapshot_age -gt $retention_days) {
 				$global:log_message = $global:log_message + "Deleting snapshot $snapshot_id ..." + $nl
 				aws ec2 delete-snapshot --region $region --snapshot-id $snapshot_id
+				
+			#Delete copies in the us-west-2 region
+               		$snapshot_copy = aws ec2 describe-snapshots --region us-west-2 --output=text --filters "Name=volume-id,Values=$volume_id" "Name=tag:CreatedBy,Values=AutomatedBackup" --query Snapshots[].SnapshotId | %{$_.split("`t")}
+                	$global:log_message = $global:log_message + "Deleting snapshot $snapshot_copy ..." + $nl
+                	aws ec2 delete-snapshot --region us-west-2 --snapshot-id $snapshot_copy
 			}
 			else {
 				$global:log_message = $global:log_message + "Not deleting snapshot $snapshot_id ..." + $nl
